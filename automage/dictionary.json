@@ -1,0 +1,493 @@
+{
+  "schema": 1,
+  "note": "Definitions and irrigation strings are metadata; prompts alone condition SAM3. Shadows/vehicles are overlapping observations, not inferred irrigation.",
+  "classes": [
+    {
+      "id": "structures",
+      "name": "structures",
+      "irrigation_metadata": "NI",
+      "definition": "Houses, garages, sheds, decks, swing sets, and solar panels on a structure",
+      "types": [
+        {
+          "id": "structures.house",
+          "name": "house",
+          "prompts": [
+            "house",
+            "rooftop",
+            "residential building"
+          ]
+        },
+        {
+          "id": "structures.outbuilding",
+          "name": "outbuilding",
+          "prompts": [
+            "garage",
+            "shed"
+          ]
+        },
+        {
+          "id": "structures.deck",
+          "name": "deck",
+          "prompts": [
+            "deck",
+            "patio"
+          ]
+        },
+        {
+          "id": "structures.roof-solar",
+          "name": "roof solar",
+          "prompts": [
+            "solar panel on a roof"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "roads",
+      "name": "roads",
+      "irrigation_metadata": "NI",
+      "definition": "Roads: gravel and asphalt",
+      "types": [
+        {
+          "id": "roads.paved-road",
+          "name": "paved road",
+          "prompts": [
+            "road",
+            "asphalt road",
+            "street"
+          ]
+        },
+        {
+          "id": "roads.unpaved-road",
+          "name": "unpaved road",
+          "prompts": [
+            "gravel road",
+            "dirt road"
+          ]
+        },
+        {
+          "id": "roads.driveway",
+          "name": "driveway",
+          "prompts": [
+            "driveway"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "concrete",
+      "name": "concrete",
+      "irrigation_metadata": "NI",
+      "definition": "Concrete, pavers, and brick",
+      "types": [
+        {
+          "id": "concrete.concrete",
+          "name": "concrete",
+          "prompts": [
+            "concrete",
+            "concrete slab"
+          ]
+        },
+        {
+          "id": "concrete.paving",
+          "name": "paving",
+          "prompts": [
+            "pavers",
+            "brick paving",
+            "sidewalk"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "impervious-other",
+      "name": "impervious other",
+      "irrigation_metadata": "NI",
+      "definition": "Other impervious objects: solar panels on the ground, tarps over pools, shade tarps, retention walls, fences, boulders, rocks, tennis courts, or movable objects presumably on impervious surfaces such as garbage bins, umbrellas, patio furniture, and trampolines",
+      "types": [
+        {
+          "id": "impervious-other.ground-solar",
+          "name": "ground solar",
+          "prompts": [
+            "solar panel array on the ground"
+          ]
+        },
+        {
+          "id": "impervious-other.cover",
+          "name": "cover",
+          "prompts": [
+            "tarp",
+            "pool cover",
+            "shade sail"
+          ]
+        },
+        {
+          "id": "impervious-other.barrier",
+          "name": "barrier",
+          "prompts": [
+            "retaining wall",
+            "fence"
+          ]
+        },
+        {
+          "id": "impervious-other.rock",
+          "name": "rock",
+          "prompts": [
+            "boulder",
+            "rock"
+          ]
+        },
+        {
+          "id": "impervious-other.court",
+          "name": "court",
+          "prompts": [
+            "tennis court"
+          ]
+        },
+        {
+          "id": "impervious-other.yard-object",
+          "name": "yard object",
+          "prompts": [
+            "garbage bin",
+            "patio umbrella",
+            "patio furniture"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "artificial-turf",
+      "name": "artificial turf",
+      "irrigation_metadata": "NI",
+      "definition": "Artificial turf",
+      "types": [
+        {
+          "id": "artificial-turf.artificial-turf",
+          "name": "artificial turf",
+          "prompts": [
+            "artificial turf",
+            "astroturf",
+            "synthetic grass"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pools",
+      "name": "pools",
+      "irrigation_metadata": "II",
+      "definition": "Pools (inset or above ground), hot tubs, koi ponds, and man-made water features or fountains larger than 64 square feet",
+      "types": [
+        {
+          "id": "pools.pool",
+          "name": "pool",
+          "prompts": [
+            "swimming pool"
+          ]
+        },
+        {
+          "id": "pools.spa",
+          "name": "spa",
+          "prompts": [
+            "hot tub"
+          ]
+        },
+        {
+          "id": "pools.water-feature",
+          "name": "water feature",
+          "prompts": [
+            "koi pond",
+            "fountain"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "turf",
+      "name": "turf",
+      "irrigation_metadata": "II, INI",
+      "definition": "Manicured lawns, smooth in texture",
+      "types": [
+        {
+          "id": "turf.lawn",
+          "name": "lawn",
+          "prompts": [
+            "lawn",
+            "mowed grass",
+            "turf grass"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "canopy",
+      "name": "canopy",
+      "irrigation_metadata": "II, INI, NI",
+      "definition": "Shrubs, trees, and other vegetation large enough to cast shadows",
+      "types": [
+        {
+          "id": "canopy.tree",
+          "name": "tree",
+          "prompts": [
+            "tree",
+            "tree canopy"
+          ]
+        },
+        {
+          "id": "canopy.shrub",
+          "name": "shrub",
+          "prompts": [
+            "shrub",
+            "bush",
+            "hedge"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ground-cover",
+      "name": "ground cover",
+      "irrigation_metadata": "II, INI, NI",
+      "definition": "Ground cover such as landscaping mulch and rock, or coarse grasses that do not cast shadows",
+      "types": [
+        {
+          "id": "ground-cover.mulch",
+          "name": "mulch",
+          "prompts": [
+            "landscaping mulch",
+            "wood chips"
+          ]
+        },
+        {
+          "id": "ground-cover.rock-cover",
+          "name": "rock cover",
+          "prompts": [
+            "decorative gravel",
+            "landscaping rock",
+            "rock",
+            "gravel",
+            "gravel road"
+          ]
+        },
+        {
+          "id": "ground-cover.coarse-grass",
+          "name": "coarse grass",
+          "prompts": [
+            "coarse grass",
+            "ornamental grass"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bare-earth",
+      "name": "bare earth",
+      "irrigation_metadata": "II, INI, NI",
+      "definition": "Bare earth lacking vegetation. Must be between irrigated plantings or orchards to be considered irrigated",
+      "types": [
+        {
+          "id": "bare-earth.bare-earth",
+          "name": "bare earth",
+          "prompts": [
+            "bare soil",
+            "bare dirt",
+            "bare ground"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "vehicles",
+      "name": "vehicles",
+      "irrigation_metadata": "II, INI, NI",
+      "definition": "Vehicles, tractors, or other movable objects such as garbage bins and umbrellas that retain the irrigation status of the land they are on",
+      "types": [
+        {
+          "id": "vehicles.road-vehicle",
+          "name": "road vehicle",
+          "prompts": [
+            "car",
+            "truck"
+          ]
+        },
+        {
+          "id": "vehicles.equipment",
+          "name": "equipment",
+          "prompts": [
+            "tractor",
+            "trailer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "trampolines",
+      "name": "trampolines",
+      "irrigation_metadata": "II, INI, NI",
+      "definition": "Trampolines that retain the irrigation status of the land they are on",
+      "types": [
+        {
+          "id": "trampolines.trampoline",
+          "name": "trampoline",
+          "prompts": [
+            "trampoline"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "undeveloped-lands",
+      "name": "undeveloped lands",
+      "irrigation_metadata": "NI",
+      "definition": "Areas deemed not irrigated by humans. Abandoned urban lots or native landscapes containing trees, grasses, and wetlands",
+      "types": [
+        {
+          "id": "undeveloped-lands.vacant-lot",
+          "name": "vacant lot",
+          "prompts": [
+            "vacant lot"
+          ]
+        },
+        {
+          "id": "undeveloped-lands.native-cover",
+          "name": "native cover",
+          "prompts": [
+            "wild grass",
+            "scrubland"
+          ]
+        },
+        {
+          "id": "undeveloped-lands.wetland",
+          "name": "wetland",
+          "prompts": [
+            "wetland",
+            "marsh"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "horse-corrals",
+      "name": "horse corrals",
+      "irrigation_metadata": "NI",
+      "definition": "Horse corrals and arenas, usually round or oval. Generally smooth soil texture, may contain signs of watering",
+      "types": [
+        {
+          "id": "horse-corrals.corral",
+          "name": "corral",
+          "prompts": [
+            "horse corral",
+            "paddock"
+          ]
+        },
+        {
+          "id": "horse-corrals.arena",
+          "name": "arena",
+          "prompts": [
+            "riding arena"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "open-water",
+      "name": "open water",
+      "irrigation_metadata": "NI",
+      "definition": "Ocean coastline, lakes, rivers, or retention ponds",
+      "types": [
+        {
+          "id": "open-water.still-water",
+          "name": "still water",
+          "prompts": [
+            "lake",
+            "pond"
+          ]
+        },
+        {
+          "id": "open-water.moving-water",
+          "name": "moving water",
+          "prompts": [
+            "river",
+            "ocean"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "agricultural-lands",
+      "name": "agricultural lands",
+      "irrigation_metadata": "NI",
+      "definition": "Large commercial agriculture identified by vegetation planted in rows (row crops, vineyards, nurseries), trees planted in formations or rows (fruit and nut orchards or nurseries), clear signs of management with irrigation or intention to irrigate (plowed, tilled, circular irrigation patterns, flood irrigation, presence of pivots or irrigation lines or discolored soils), or irrigated livestock pastureland",
+      "types": [
+        {
+          "id": "agricultural-lands.row-crop",
+          "name": "row crop",
+          "prompts": [
+            "row crop field",
+            "plowed field"
+          ]
+        },
+        {
+          "id": "agricultural-lands.orchard",
+          "name": "orchard",
+          "prompts": [
+            "orchard",
+            "vineyard"
+          ]
+        },
+        {
+          "id": "agricultural-lands.nursery",
+          "name": "nursery",
+          "prompts": [
+            "plant nursery"
+          ]
+        },
+        {
+          "id": "agricultural-lands.pasture",
+          "name": "pasture",
+          "prompts": [
+            "pasture"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shadow",
+      "name": "shadow",
+      "irrigation_metadata": "II, INI, NI",
+      "definition": "Shadows cast by shadow generating features: structures, trees and shrubs, walls and fences, and vehicles. Retains the irrigation status of the land the shadow falls on",
+      "types": [
+        {
+          "id": "shadow.structure-shadow",
+          "name": "structure shadow",
+          "prompts": [
+            "building shadow",
+            "house shadow",
+            "structure shadow"
+          ]
+        },
+        {
+          "id": "shadow.shadow-tree",
+          "name": "shadow tree",
+          "prompts": [
+            "tree shadow"
+          ]
+        },
+        {
+          "id": "shadow.shadow-vehicle",
+          "name": "shadow vehicle",
+          "prompts": [
+            "vehicle shadow"
+          ]
+        },
+        {
+          "id": "shadow.shadow-genderal",
+          "name": "shadow genderal",
+          "prompts": [
+            "shadow"
+          ]
+        }
+      ]
+    }
+  ]
+}

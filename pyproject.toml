@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "automage"
+version = "0.1.0"
+description = "Automated image analysis with SAM3 features and superpixel objects"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy==2.3.5",
+    "scipy==1.18.1",
+    "rasterio==1.5.1",
+    "shapely==2.1.2",
+    "pyproj==3.8.0",
+    "pyogrio==0.13.0",
+    "Pillow==12.3.0",
+    "transformers==5.3.0",
+    "huggingface_hub==1.32.0",
+    "scikit-image==0.26.0",
+    "matplotlib==3.11.2",
+    "affine==3.0.1",
+    "torch",
+]
+
+[project.optional-dependencies]
+notebook = ["ipykernel"]
+test = ["pytest", "nbformat"]
+
+[project.scripts]
+automage = "automage.cli:entrypoint"
+
+[project.urls]
+Repository = "https://github.com/aboettcher-sig/automage"
+
+[tool.setuptools.packages.find]
+include = ["automage", "automage.data", "automage.models", "automage.models.sam3"]
+
+[tool.setuptools.package-data]
+automage = ["dictionary.json", "data/*.tif", "models/sam3/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

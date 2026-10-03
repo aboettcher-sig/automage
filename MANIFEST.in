@@ -1,0 +1,2 @@
+include notebooks/AutoMage_Demo.ipynb
+recursive-include tests *.py
