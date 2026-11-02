@@ -1,0 +1,5 @@
+# Tuning runs (large model outputs) and local image crops stay out of git.
+runs/
+data/
+__pycache__/
+.DS_Store

@@ -1,0 +1,46 @@
+{
+  "goal": "irrigation",
+  "purpose": "assess the irrigation status of the land: irrigated (II), irrigable but not irrigated (INI) or not irrigable (NI)",
+  "approved": false,
+  "approved_by": "",
+  "approved_on": "",
+  "provisional_note": "Example only. Categories come from the bundled dictionary's irrigation_metadata; the meaning of II / INI / NI and the rules for ambiguous classes still need to be confirmed.",
+  "classes": {
+    "turf": {"role": "key", "category": "depends", "note": "II or INI: maintained lawn, irrigated or not"},
+    "undeveloped lands": {"role": "key", "category": "NI"},
+    "pools": {"role": "key", "category": "II"},
+    "canopy": {"role": "key", "category": "depends", "note": "II, INI or NI depending on the ground and setting"},
+    "ground cover": {"role": "key", "category": "depends"},
+    "bare earth": {"role": "key", "category": "depends", "note": "irrigated only between irrigated plantings or orchards"},
+    "agricultural lands": {"role": "key", "category": "NI"},
+    "artificial turf": {"role": "key", "category": "NI"},
+    "open water": {"role": "context", "category": "NI"},
+    "horse corrals": {"role": "context", "category": "NI"},
+    "structures": {"role": "context", "category": "NI"},
+    "roads": {"role": "context", "category": "NI"},
+    "concrete": {"role": "context", "category": "NI"},
+    "impervious other": {"role": "context", "category": "NI"},
+    "shadow": {"role": "context", "category": "depends", "note": "takes the status of the ground beneath"},
+    "vehicles": {"role": "ignore", "category": "depends", "note": "takes the status of the ground beneath"},
+    "trampolines": {"role": "ignore", "category": "depends"}
+  },
+  "new_classes": [],
+  "costly_confusions": [
+    {"a": "turf", "b": "undeveloped lands", "cost": 3, "why": "irrigated lawn vs native land is the core distinction"},
+    {"a": "turf", "b": "artificial turf", "cost": 3, "why": "real vs artificial grass flips the status"},
+    {"a": "turf", "b": "agricultural lands", "cost": 2, "why": "different irrigation regime"},
+    {"a": "canopy", "b": "undeveloped lands", "cost": 2, "why": "yard trees vs native vegetation"},
+    {"a": "pools", "b": "open water", "cost": 2, "why": "II vs NI"}
+  ],
+  "default_cost": {"same_category": 0, "different_category": 1, "missed": 1},
+  "rules": [
+    "Shadow, vehicles and trampolines take the irrigation status of the ground beneath them.",
+    "Bare earth counts as irrigated only between irrigated plantings or orchards.",
+    "Confusions among non-irrigable hard surfaces (structures, roads, concrete, impervious other) don't matter."
+  ],
+  "output": "an irrigation status map (II / INI / NI / undetermined) and the share of each, with accuracy at the holdout points",
+  "caveats": [
+    "RGB only: no near-infrared to measure plant vigour, so irrigated vs non-irrigated grass relies on colour and context.",
+    "Turf, canopy, ground cover, bare earth and shadow can't be given a status from the class alone."
+  ]
+}
