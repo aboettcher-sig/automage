@@ -12,6 +12,9 @@ Soft points are the points the labellers didn't agree on (dropped from the stric
 acceptable when classified with a class either labeller gave (any class if both were uncertain). They measure gap
 filling where the strict points are thin; they never count in accuracy.
 
+With a goal (goal.json in the workspace), every 'net' below is goal cost removed minus goal cost added, so
+confusions the goal doesn't care about count nothing and costly ones count more.
+
 Gate vs. base: features net >= 0, objects net >= -1, no reference class losing more than 1 point net in features
 or (unless features net >= LARGE_FEATURE_GAIN) in objects,
 and gain > 0, where gain = features net + FALSE_WEIGHT * false-detection net (+ SOFT_WEIGHT * soft net in features
@@ -25,7 +28,7 @@ import rasterio
 from shapely.geometry import Point,shape
 from shapely.strtree import STRtree
 from automage.config import concepts
-from common import class_maps,load_json,presence,save_json,soft_ok,soft_points,workspace
+from common import class_maps,load_goal,load_json,point_cost,presence,save_json,soft_ok,soft_points,workspace
 
 FALSE_WEIGHT=.5  # a hidden wrong detection counts half as much as a wrong winning class
 LARGE_FEATURE_GAIN=5  # features net from which a per-class loss in objects is tolerated
@@ -75,15 +78,27 @@ def accuracy(pts,pred,layer):
         'per_class':{k:{'correct':v[0],'n':v[1],'accuracy':round(100*v[0]/v[1],1)} for k,v in sorted(per.items())},
         'errors':[{'truth':t,'predicted':pr,'count':len(ids),'points':ids} for (t,pr),ids in sorted(conf.items(),key=lambda x:-len(x[1]))]}
 
-def compare(pts,base,cand,layer):
-    fixed=[p for p in pts if base[p['id']][layer] not in p['accept'] and cand[p['id']][layer] in p['accept']]
-    broken=[p for p in pts if base[p['id']][layer] in p['accept'] and cand[p['id']][layer] not in p['accept']]
-    per=collections.Counter()
-    for p in fixed:per[p['label']]+=1
-    for p in broken:per[p['label']]-=1
-    return {'net':len(fixed)-len(broken),'per_class_net':{k:v for k,v in per.items() if v},
-        'fixed':[{'id':p['id'],'x':p['x'],'y':p['y'],'truth':p['label'],'was':base[p['id']][layer],'now':cand[p['id']][layer]} for p in fixed],
-        'broken':[{'id':p['id'],'x':p['x'],'y':p['y'],'truth':p['label'],'was':base[p['id']][layer],'now':cand[p['id']][layer]} for p in broken]}
+def compare(pts,base,cand,layer,goal=None):
+    """Points fixed and broken, weighted by goal cost (each wrong point costs 1 without a goal)."""
+    cost=lambda pr,p:point_cost(goal,p,pr[p['id']][layer])
+    diff={p['id']:cost(base,p)-cost(cand,p) for p in pts}
+    fixed=[p for p in pts if diff[p['id']]>0];broken=[p for p in pts if diff[p['id']]<0]
+    per=collections.Counter();pts_per=collections.Counter()
+    for p in fixed+broken:per[p['label']]+=diff[p['id']];pts_per[p['label']]+=1 if diff[p['id']]>0 else -1
+    r=lambda v:int(v) if float(v).is_integer() else round(v,2)
+    item=lambda p:{'id':p['id'],'x':p['x'],'y':p['y'],'truth':p['label'],'was':base[p['id']][layer],'now':cand[p['id']][layer],'cost_change':r(-diff[p['id']])}
+    return {'net':r(sum(diff.values())),'per_class_net':{k:r(v) for k,v in per.items() if v},
+        'per_class_points_net':{k:v for k,v in pts_per.items() if v},
+        'fixed':[item(p) for p in fixed],'broken':[item(p) for p in broken]}
+
+def goal_block(pts,pred,goal,layer):
+    """Total goal cost at the points and the worst errors by cost (only with a goal)."""
+    errs=collections.defaultdict(lambda:[0.,0])
+    for p in pts:
+        c=point_cost(goal,p,pred[p['id']][layer])
+        if c:k=(p['label'],pred[p['id']][layer]);errs[k][0]+=c;errs[k][1]+=1
+    return {'cost':round(sum(v[0] for v in errs.values()),2),'points':len(pts),
+        'costliest_errors':[{'truth':t,'predicted':pr,'cost':round(v[0],2),'count':v[1]} for (t,pr),v in sorted(errs.items(),key=lambda x:-x[1][0])[:10]]}
 
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('workspace');ap.add_argument('round');ap.add_argument('--base');ap.add_argument('--final',action='store_true')
@@ -91,9 +106,10 @@ def main():
     ref=load_json(ws/'reference'/'reference.json')['points']
     splits={'tune':[p for p in ref if p['split']=='tune']}
     if a.final:splits['holdout']=[p for p in ref if p['split']=='holdout']
-    pred=predict(rd,ref);has_obj=next(iter(pred.values()))['objects'] is not None
+    goal=load_goal(ws);pred=predict(rd,ref);has_obj=next(iter(pred.values()))['objects'] is not None
     score={s:{'features':accuracy(pts,pred,'features'),**({'objects':accuracy(pts,pred,'objects')} if has_obj else {}),
-        'false_detections':false_detections(pts,pred)[1]} for s,pts in splits.items()}
+        'false_detections':false_detections(pts,pred)[1],
+        **({'goal':{l:goal_block(pts,pred,goal,l) for l in (['features','objects'] if has_obj else ['features'])}} if goal else {})} for s,pts in splits.items()}
     score['tune']['prompts']=prompt_hits(rd,splits['tune'])
     soft=soft_points(ws);spred=predict(rd,soft) if soft else {}
     soft_score=lambda pr:{l:sum(soft_ok(p,pr[p['id']][l]) for p in soft) for l in (['features','objects'] if has_obj else ['features'])}
@@ -106,13 +122,13 @@ def main():
         presented_ground_gsd_m=g(summ['inference']['presented_ground_gsd_m']),state=summ['state'])
     save_json(rd/('final_score.json' if a.final else 'score.json'),score)
     out={s:{**{l:{'accuracy':v[l]['accuracy'],'correct':f"{v[l]['correct']}/{v[l]['n']}"} for l in ('features','objects') if l in v},
-        'false_detections':v['false_detections']['count']} for s,v in score.items() if s in ('tune','holdout')}
+        'false_detections':v['false_detections']['count'],**({'goal_cost':{l:g['cost'] for l,g in v['goal'].items()}} if 'goal' in v else {})} for s,v in score.items() if s in ('tune','holdout')}
     out['diagnostics']=score.get('diagnostics');out['soft']=score.get('soft');out['top_errors']=[f"{e['truth']} -> {e['predicted']}: {e['count']}" for e in score['tune']['features']['errors'][:8]]
     out['top_false_detections']=[f"{c} at {v['count']} points (truth: {v['truth']})" for c,v in list(score['tune']['false_detections']['by_class'].items())[:6]]
     out['worst_prompts']=[f"{r['class']}: '{r['prompt']}' wrong {r['wrong']} / right {r['right']}" for r in score['tune']['prompts'] if r['wrong']][:8]
     if a.base:
         tune=splits['tune'];base=predict(a.base,tune)
-        cmp={l:compare(tune,base,pred,l) for l in (['features','objects'] if has_obj else ['features'])}
+        cmp={l:compare(tune,base,pred,l,goal) for l in (['features','objects'] if has_obj else ['features'])}
         # Compare false detections only at points whose winner is right in both rounds: a newly fixed point would
         # otherwise expose its pre-existing wrong detections as "added" (penalising the fix itself), and a newly
         # broken point would hide them as "removed". Points that change correctness are counted by the features net.
@@ -136,10 +152,11 @@ def main():
         if cmp['features']['net']<0:reasons.append(f"features net {cmp['features']['net']} (needs >= 0)")
         if gain<=0:reasons.append(f"gain {gain} = {formula} (needs > 0)")
         if has_obj and cmp['objects']['net']<-1:reasons.append(f"objects net {cmp['objects']['net']} (needs >= -1)")
-        reasons+=[f'class {k} lost {-v} points net' for k,v in cmp['features']['per_class_net'].items() if v<-1]
+        # Per-class losses are counted in points (not goal cost), so one costly error can't veto a large overall gain.
+        reasons+=[f'class {k} lost {-v} points net' for k,v in cmp['features']['per_class_points_net'].items() if v<-1]
         # A class losing points in objects fails the gate unless the features gain is large (>= LARGE_FEATURE_GAIN):
         # broad area phrases can swallow narrow surfaces in objects while features get them right.
-        obj_losses={k:v for k,v in cmp['objects']['per_class_net'].items() if v<-1} if has_obj else {}
+        obj_losses={k:v for k,v in cmp['objects']['per_class_points_net'].items() if v<-1} if has_obj else {}
         if obj_losses and cmp['features']['net']<LARGE_FEATURE_GAIN:
             reasons+=[f'class {k} lost {-v} points net in objects (features net {cmp["features"]["net"]} < {LARGE_FEATURE_GAIN})' for k,v in obj_losses.items()]
         cmp['objects_class_losses_allowed']=obj_losses if obj_losses and cmp['features']['net']>=LARGE_FEATURE_GAIN else {}

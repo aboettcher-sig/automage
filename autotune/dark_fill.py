@@ -66,13 +66,15 @@ def main():
     with rasterio.open(new/'run.work'/'classes.tif','w',**prof) as d:d.write(out,1)
     mp=dict(prof,dtype='uint8',nodata=None)
     with rasterio.open(new/'run'/'dark_fill.tif','w',**mp) as d:d.write(fill.astype('uint8'),1)
-    with rasterio.open(new/'run'/'objects.tif') as s:obj=s.read(1)
-    n=np.bincount(obj.ravel());f=np.bincount(obj.ravel(),weights=fill.ravel().astype(float),minlength=len(n))
-    candidates=[int(i) for i in np.nonzero((n>0)&(f>.5*n))[0]]
-    db=open_gpkg(new/'run'/'classification.gpkg')
-    before=db.execute("select count(*) from objects where class_final='unclassified'").fetchone()[0]
-    db.executemany("update objects set class_final='shadow',notes=trim(coalesce(notes,'')||' dark-gap fill') where object_id=? and class_final='unclassified'",[(i,) for i in candidates])
-    db.commit();changed=before-db.execute("select count(*) from objects where class_final='unclassified'").fetchone()[0];db.close()
+    changed=0
+    if (new/'run'/'objects.tif').exists():  # objects layer only when the run built one
+        with rasterio.open(new/'run'/'objects.tif') as s:obj=s.read(1)
+        n=np.bincount(obj.ravel());f=np.bincount(obj.ravel(),weights=fill.ravel().astype(float),minlength=len(n))
+        candidates=[int(i) for i in np.nonzero((n>0)&(f>.5*n))[0]]
+        db=open_gpkg(new/'run'/'classification.gpkg')
+        before=db.execute("select count(*) from objects where class_final='unclassified'").fetchone()[0]
+        db.executemany("update objects set class_final='shadow',notes=trim(coalesce(notes,'')||' dark-gap fill') where object_id=? and class_final='unclassified'",[(i,) for i in candidates])
+        db.commit();changed=before-db.execute("select count(*) from objects where class_final='unclassified'").fetchone()[0];db.close()
     v=valid&ex;info={'base_round':str(base),'threshold':t,'threshold_mode':a.threshold,'smooth_px':size,'tune_correct_by_threshold':scores,
         'filled_pct_of_image':round(100*fill.sum()/v.sum(),2),'unclassified_pct_before':round(100*gap.sum()/v.sum(),2),
         'unclassified_pct_after':round(100*(gap&~fill).sum()/v.sum(),2),'objects_set_to_shadow':int(changed)}

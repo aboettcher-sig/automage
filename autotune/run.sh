@@ -9,7 +9,9 @@ WS=$(cd "$1" && pwd); DIR="$WS/rounds/$2"; DICT=$3; BASE=$4; shift 4
 mkdir -p "$DIR"; [ "$DICT" -ef "$DIR/dictionary.json" ] || cp "$DICT" "$DIR/dictionary.json"
 echo "$*" > "$DIR/flags.txt"
 IMG=$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1]))['image'])" "$WS/workspace.json")
-"$ROOT/.venv/bin/automage" classify --input "$IMG" --out "$DIR/run" --objects --dictionary "$DIR/dictionary.json" "$@" \
+# The objects layer (SLIC superpixels) is built only when the workspace asks for it (older workspaces: yes).
+OBJ=$("$PY" -c "import json,sys;print('--objects' if json.load(open(sys.argv[1])).get('objects',True) else '')" "$WS/workspace.json")
+"$ROOT/.venv/bin/automage" classify --input "$IMG" --out "$DIR/run" $OBJ --dictionary "$DIR/dictionary.json" "$@" \
     > "$DIR/classify.log" 2>&1 || { tail -20 "$DIR/classify.log"; exit 1; }
 "$PY" "$HERE/evaluate.py" "$DIR/run" > /dev/null
 if [ ! -f "$WS/reference/reference.json" ]; then

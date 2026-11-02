@@ -3,7 +3,10 @@
 edits.json: [{"type": "<type id>", "remove": [...], "add": [...], "why": "..."},
              {"type": "<type id>", "drop_type": true, "why": "..."},
              {"class": "<class name>", "drop_class": true, "why": "..."},
-             {"class": "<class name>", "new_type": "<type id>", "add": [...], "why": "..."}, ...]
+             {"class": "<class name>", "new_type": "<type id>", "add": [...], "why": "..."},
+             {"new_class": "<class name>", "definition": "...", "types": [{"id": "<type id>", "prompts": [...]}],
+              "why": "..."}, ...]
+A new class is appended at the end, so existing class ids stay the same.
 """
 import json,sys
 from automage.config import load_dictionary
@@ -11,6 +14,11 @@ from automage.config import load_dictionary
 def main(base,edits,out):
     d=json.load(open(base));classes={c['name']:c for c in d['classes']}
     for e in json.load(open(edits)):
+        if 'new_class' in e:
+            if e['new_class'] in classes:raise ValueError(f"class {e['new_class']} already exists")
+            c={'id':e['new_class'].replace(' ','-'),'name':e['new_class'],'definition':e.get('definition',''),
+               'types':[{'id':t['id'],'name':t['id'].split('.')[-1],'prompts':t['prompts']} for t in e['types']]}
+            d['classes'].append(c);classes[c['name']]=c;continue
         if e.get('drop_class'):d['classes']=[c for c in d['classes'] if c['name']!=e['class']];continue
         if 'new_type' in e:classes[e['class']]['types'].append({'id':e['new_type'],'name':e['new_type'].split('.')[-1],'prompts':e['add']});continue
         owner=next(c for c in d['classes'] if any(t['id']==e['type'] for t in c['types']))

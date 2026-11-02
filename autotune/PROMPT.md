@@ -1,23 +1,60 @@
 # Autonomous AutoMage tuning
 
 Paste the block below into a fresh Claude Code session started at the root of this repository (with `.venv` set up),
-with `<IMAGE>` and `<NAME>` filled in.
+with `<IMAGE>` and `<NAME>` filled in, and `<GOAL>` replaced by what the classification is for (e.g. "assess
+irrigation status", "map bike access", "assess fire danger") or left as is to be asked.
 
 ---
 
-Produce the most accurate land-cover classification of `<IMAGE>` using AutoMage. Work fully autonomously:
-no human review, and don't stop to ask me anything. Optimise for correctness on the image. Coverage, overlap
-and prompt counts are diagnostics, not goals.
+Produce the land-cover classification of `<IMAGE>` with AutoMage that best serves this goal: `<GOAL>`.
+First agree the goal and the labeller models with me (section 0); that is the only time you ask me anything. After I approve it, work fully
+autonomously: no human review, and don't stop to ask me anything. Optimise for correctness on the image as the goal
+defines it. Coverage, overlap and prompt counts are diagnostics, not goals.
+
+**Communication.** After I approve the goal, work silently. Don't send me progress updates: not per round, not
+per step, not summaries of what you're about to do. Record progress in `<ws>/journal.md` instead, and keep any text
+between tool calls to a bare minimum. Only message me:
+- when the run is finished (a short summary pointing to `REPORT.md`),
+- when you're blocked and can't continue on your own (and after retrying usage limits, as described below),
+- when I ask a question: answer it briefly, then carry on silently.
+Only give regular updates if I explicitly ask for them (e.g. "update me every 5 rounds"), and then only as often as
+I asked. If I tell you to stop updating, stop for the rest of the run.
 
 Use only the tools in `autotune/` (each script's docstring has its usage). Workspace: `autotune/runs/<NAME>/`.
 Python is `.venv/bin/python`. Do not modify the `automage/` package; tune only through dictionaries and CLI flags.
+
+## 0. Agree the goal and the labeller models (the only interactive step)
+
+1. If `<GOAL>` is still a placeholder or unclear, ask me what the classification is for, in one question.
+2. Look at the image and at the classes in `automage/dictionary.json`, and read `autotune/goals/README.md`.
+3. Draft `autotune/runs/<NAME>.goal.json` in that format and show it to me as tables:
+   - **Classes that matter:** each class with its role (key / context / ignore) and the goal category it maps to,
+     or "depends" with the rule that decides it.
+   - **Costly confusions:** the mix-ups that change the answer for this goal, each with a cost and the reason.
+     Also say which confusions won't matter (same category).
+   - **New classes needed:** any the bundled dictionary lacks, with definitions and starting prompts.
+   - **Caveats:** what this image can't show for the goal (resolution, RGB only, things not visible from above).
+4. In the same message, ask which models the two labellers should use, with **mixed** as the default:
+   - **mixed (default):** labeller A on Opus, B on Sonnet. Two different models make more independent mistakes, so
+     their agreement means more, and labelling costs about a third less than with two Opus labellers.
+   - **sonnet:** both on Sonnet. About 70% cheaper and much faster, but more decisive on hard points (rough grass,
+     shadow), so ambiguity is less visible.
+   - **opus:** both on Opus. The most cautious and the most expensive.
+   If I don't answer this part, use mixed.
+   Also ask whether I need the **objects layer** (SLIC superpixel polygons: gap-free, non-overlapping objects next to
+   the detection features). Default **off**: features only, faster runs and no superpixel tuning rounds. Turn it on
+   if I need gap-free polygons or the objects layer; if I don't answer, keep it off.
+5. Wait for my approval or edits, and revise until I approve. Then set `"approved": true`, `approved_on` and
+   `approved_by: "user"`, and don't change the goal, the labeller models or the objects choice again for the rest of the run.
 
 ## 1. Check the input and build the measuring stick before any tuning
 
 1. Check the image: AutoMage classifies bands 1–3 as RGB, so confirm they are red, green, blue (inspect the file and
    look at a rendering). If they aren't, stop and report it; it can't be fixed from the CLI.
-2. `autotune/sample_points.py <IMAGE> autotune/runs/<NAME> --n <N>` samples stratified points and renders labelling
-   sheets. Use N = 300 for an image up to about 4 megapixels, and 500 for a larger or more varied scene. It prints
+2. `autotune/sample_points.py <IMAGE> autotune/runs/<NAME> --n <N> --goal autotune/runs/<NAME>.goal.json
+   --labellers <mixed|sonnet|opus> --objects-layer <off|on>` samples stratified points, renders labelling sheets, saves the goal as
+   `<ws>/goal.json` and records the labeller models, which `label_points.py` then uses automatically (also for the
+   final assessment). Don't pass `--model` to `label_points.py`. Use N = 300 for an image up to about 4 megapixels, and 500 for a larger or more varied scene. It prints
    the native ground GSD and stores it in `workspace.json`.
 3. `autotune/label_points.py <ws> A` and `... <ws> B` (run both in parallel) label the points with two independent
    Claude sessions that see only the source image. Do not label points yourself, and do not edit the labels.
@@ -27,11 +64,15 @@ Python is `.venv/bin/python`. Do not modify the `automage/` package; tune only t
    Never look at holdout results until the final report.
 5. Look at the source image and the `reference.json` stats. In the journal, note the scene type, the classes
    actually present, and which visible surfaces have few or no reference points: those can only be judged by the
-   reviewer.
+   reviewer. Also note `unlisted_surfaces`: surfaces the labellers saw but no class fits ("other", grouped in
+   `reference/unlisted.json`). They can't be added as classes mid-run; tune the closest class's prompts if it
+   helps, and list them in the report.
 
 ## 2. Baseline
 
-`autotune/run.sh <ws> 00 automage/dictionary.json -` runs the bundled dictionary with default settings. Start it as
+`autotune/run.sh <ws> 00 <dictionary> -` runs the starting dictionary with default settings: the bundled
+`automage/dictionary.json`, plus any `new_classes` from the goal (add them with `edit_dictionary.py` `new_class`
+edits first). Start it as
 soon as sampling is done, in parallel with labelling: if the reference isn't merged yet, `run.sh` finishes the run,
 skips scoring with a warning, and prints the `score.py` command to run once `merge_labels.py` is done.
 Note its run time and window count, and use them to size later runs. The number of windows grows roughly with
@@ -63,8 +104,10 @@ Keep `<ws>/journal.md` and read it before every round. It holds:
 Never repeat a change the journal records as failed unless the base has changed in a way that could matter.
 
 Each round:
-1. **Pick the largest problem** in the best round's `score.json`. That is either an `errors` cluster, or a prompt that
-   fires wrongly at many points. Look at the points on the source image and the overlays.
+1. **Pick the largest problem for the goal** in the best round's `score.json`: the costliest cluster in
+   `goal.costliest_errors`, an `errors` cluster, or a prompt that fires wrongly at many points. Errors the goal
+   doesn't care about (same category, ignored classes) cost nothing and aren't worth a round. Look at the points on
+   the source image and the overlays.
 2. **Find the cause.** Run `autotune/point_prompts.py <ws> <ws>/rounds/<best> <point ids>` on the error's points (or
    a selector: `errors`, `truth=<class>`, `wins=<class>`; all use tune points only): it lists every class and prompt
    that fires there, with scores and windows. Do wrong prompts fire there, and by how
@@ -128,7 +171,7 @@ points but breaks a few is a lead for a narrower version, not something to accep
 3. **Detection gaps:** add specific, object-like phrases for surfaces where nothing fires. A new phrase often never
    fires at all, so put 2–3 alternative phrasings for the same gap in one round. Afterwards, check
    `feature_observations.jsonl` and record any phrases with zero detections as silent, so they aren't retried.
-4. **Objects (last):** `--object-region-px` (superpixel size, in source pixels, so its ground size depends on the
+4. **Objects (last, only when the objects layer is on):** `--object-region-px` (superpixel size, in source pixels, so its ground size depends on the
    GSD: 28 px is about 3 m at 11 cm but about 1.6 m at 6 cm) and `--object-compactness`. Change
    these only once features are stable. Smaller superpixels follow boundaries better but leave more unclassified
    slivers; larger ones fill slivers but blur boundaries. Let the gate and the reviewer weigh that trade-off.
@@ -145,18 +188,33 @@ points but breaks a few is a lead for a narrower version, not something to accep
 ## 5. Stopping
 
 Stop after 30 rounds, or after 6 rejected rounds in a row once every lever (prompt removal, overlap, scale with its
-paired cleanup or recorded as not applicable, gap phrases, objects) has been tried at least once. A round where nothing fired or nothing changed
+paired cleanup or recorded as not applicable, gap phrases, and objects when the objects layer is on) has been tried at least once. A round where nothing fired or nothing changed
 counts as rejected. Don't stop because a single lever looks exhausted.
 
 ## 6. Final report
 
-Run `autotune/score.py <ws> <ws>/rounds/00 --final` and the same for the best round. These write
-`final_score.json` (tune and holdout) next to each round's `score.json`; read the holdout figures only from there. Write `<ws>/REPORT.md` with:
-- holdout and tune accuracy (features and objects, overall and per class) for baseline vs. best
+1. Run `autotune/score.py <ws> <ws>/rounds/00 --final` and the same for the best round. These write
+   `final_score.json` (tune and holdout) next to each round's `score.json`; read the holdout figures only from there.
+   The holdout comes from the tuning sample, so treat it as a **tuning check**, not the map's accuracy.
+2. **Final accuracy assessment** of the best round, in the layer you recommend:
+   `autotune/final_assess.py <ws> <ws>/rounds/<best> sample --layer <features|objects>` draws fresh points stratified
+   by the map's classes; label them with `autotune/label_points.py <ws> A --dir final_assessment` and `... B` (in
+   parallel, blind, rerun on usage limits like before); then `autotune/final_assess.py <ws> <ws>/rounds/<best>
+   estimate`. Don't change the map after sampling.
+3. Write `<ws>/REPORT.md` with:
+- the goal and how well it is served: goal cost at the holdout and tune points (features and objects) for baseline
+  vs. best, and the goal map from `autotune/goal_map.py <ws> <best round>` with the share of each category,
+  including the undetermined share and what would be needed to decide it
+- the **final accuracy assessment** (`final_assessment/assessment.md`): area-weighted overall accuracy with its 95%
+  interval (lenient and strict: the truth lies between them), user's and producer's accuracy per class, and the
+  error-adjusted share of each class (and goal agreement with a goal)
+- holdout and tune accuracy (features and objects, overall and per class) for baseline vs. best, as the tuning check
 - false detections (tune and holdout), coverage, overlap and share of unclassified objects for baseline vs. best
-- which layer to use: features or objects, based on holdout accuracy and gaps
+- which layer to use: features or objects (when the objects layer is on), based on holdout accuracy and gaps
 - the final dictionary path and the exact `automage classify` command
 - the table of all rounds
 - the remaining error clusters, and the problems the reviewer saw in areas without reference points
-- an honest note on the limits: the reference labels come from Claude reading the image and may be wrong, and
+- surfaces the class list doesn't cover (`reference/unlisted.json`): each description with its count and example
+  points, and whether it would matter for the goal, so it can be added as a class in a future run
+- the goal's caveats, and an honest note on the limits: the reference labels come from Claude reading the image and may be wrong, and
   surfaces the labellers couldn't agree on (often boundaries and mixed ground) have no reference points

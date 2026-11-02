@@ -51,11 +51,34 @@ def presence(run):
             name=owner[cid];m=s.read(band)>0;out[name]=out[name]|m if name in out else m
     return out
 
+def load_goal(ws):
+    """The workspace's approved goal (goal.json), or None. See goals/README.md for the format."""
+    p=Path(ws)/'goal.json'
+    return load_json(p) if p.exists() else None
+
+def point_cost(goal,p,pred):
+    """Cost of predicting `pred` at reference point p: 0 when acceptable, otherwise 1 without a goal.
+
+    With a goal: errors on classes the goal ignores cost 0; listed costly confusions cost their stated amount; a
+    missed (unclassified) point costs goal['default_cost']['missed']; confusing two classes in the same goal category
+    costs default_cost['same_category'] (usually 0); anything else costs default_cost['different_category'].
+    """
+    if pred in p['accept']:return 0.
+    if goal is None:return 1.
+    classes=goal.get('classes',{});d=goal.get('default_cost',{});truth=p['label']
+    if classes.get(truth,{}).get('role')=='ignore':return 0.
+    for c in goal.get('costly_confusions',[]):
+        if {c['a'],c['b']}=={truth,pred}:return float(c['cost'])
+    if pred in ('unclassified','unexecuted'):return float(d.get('missed',1))
+    ct,cp=classes.get(truth,{}).get('category'),classes.get(pred,{}).get('category')
+    if ct and ct==cp and ct!='depends':return float(d.get('same_category',0))
+    return float(d.get('different_category',1))
+
 def soft_points(ws):
     """Reference points the labellers didn't agree on (dropped from the strict reference), with lenient answers.
 
     Each gets "options": every class either labeller gave (label or also); empty when both said uncertain, meaning
-    any class is acceptable. Only "unclassified" is always wrong. Built from the label files, so it works for any
+    any class is acceptable ("other", a surface no class fits, counts like uncertain). Only "unclassified" is always wrong. Built from the label files, so it works for any
     workspace with labels_A/B.json and reference.json.
     """
     ws=Path(ws);ref=ws/'reference';strict={p['id'] for p in load_json(ref/'reference.json')['points']}
@@ -63,7 +86,7 @@ def soft_points(ws):
     for p in load_json(ref/'points.json'):
         if p['id'] in strict or p['id'] not in A or p['id'] not in B:continue
         a,b=A[p['id']],B[p['id']]
-        out.append({**p,'options':sorted({a['label'],b['label'],*a['also'],*b['also']}-{'uncertain'})})
+        out.append({**p,'options':sorted({a['label'],b['label'],*a['also'],*b['also']}-{'uncertain','other'})})
     return out
 
 def soft_ok(p,pred):

@@ -1,6 +1,11 @@
 """Create a workspace: sample stratified reference points and render labelling sheets.
 
-Usage: sample_points.py <image.tif> <workspace_dir> [--n 300] [--seed 0] [--dictionary bundled]
+Usage: sample_points.py <image.tif> <workspace_dir> [--n 300] [--seed 0] [--dictionary bundled] [--goal goal.json]
+                        [--labellers mixed|sonnet|opus] [--objects-layer off|on]
+
+--labellers stores which model each labeller uses (in workspace.json, read by label_points.py):
+mixed (default) = A on Opus, B on Sonnet; sonnet = both Sonnet (cheapest, fastest); opus = both Opus (most cautious).
+--objects-layer on makes every run also build the SLIC superpixel objects layer (off by default: features only).
 
 Strata: k-means clusters of colour+texture, plus high-gradient edge pixels (thin features, boundaries).
 Chip extents and point spacing are set in ground metres, so labellers see the same ground on any GSD, with a minimum
@@ -8,7 +13,7 @@ size in pixels so coarse imagery (e.g. 0.5 m) isn't shown as a few enlarged pixe
 Writes workspace.json, reference/points.json and reference/sheets/{A,B}_NN.png: the same points in two
 independent orders/groupings, one set per labeller.
 """
-import argparse,math,sys
+import argparse,json,math,sys
 from pathlib import Path
 import numpy as np
 from PIL import Image,ImageDraw
@@ -22,6 +27,8 @@ from automage.config import load_dictionary
 from automage.raster import native_gsd
 
 PER_SHEET=10;TILE=240
+LABELLER_MODELS={'mixed':{'A':'claude-opus-5-5','B':'claude-sonnet-5-5'},'sonnet':{'A':'claude-sonnet-5-5','B':'claude-sonnet-5-5'},
+    'opus':{'A':'claude-opus-5-5','B':'claude-opus-5-5'}}
 CLOSE_M=4.6;WIDE_M=13.7;MIN_DIST_M=1.4  # half-widths of the close-up and context views, and point spacing, in metres
 CLOSE_MIN_PX=40;WIDE_MIN_PX=120  # but never fewer source pixels than this, so coarse imagery still shows recognisable shapes
 
@@ -76,12 +83,19 @@ def sheet(rgb,pts,path,close_px,wide_px):
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('image');ap.add_argument('workspace')
     ap.add_argument('--n',type=int,default=300);ap.add_argument('--seed',type=int,default=0);ap.add_argument('--clusters',type=int,default=10)
-    ap.add_argument('--dictionary');a=ap.parse_args()
+    ap.add_argument('--dictionary');ap.add_argument('--goal',help='approved goal file; saved as <workspace>/goal.json')
+    ap.add_argument('--labellers',choices=sorted(LABELLER_MODELS),default='mixed');ap.add_argument('--objects-layer',choices=['off','on'],default='off');a=ap.parse_args()
     ws=Path(a.workspace).resolve();ref=ws/'reference';(ref/'sheets').mkdir(parents=True,exist_ok=False);(ws/'rounds').mkdir()
     image=str(Path(a.image).resolve());rgb,valid=read_rgb(image)
     taxonomy=[{'name':c['name'],'definition':c.get('definition','')} for c in load_dictionary(a.dictionary)['classes']]
+    if a.goal:
+        goal=json.loads(Path(a.goal).read_text())
+        if not goal.get('approved'):sys.exit('the goal file is not approved yet (set "approved": true once the user agrees)')
+        save_json(ws/'goal.json',goal)
+        taxonomy+=[{'name':c['name'],'definition':c.get('definition','')} for c in goal.get('new_classes',[]) if c['name'] not in {t['name'] for t in taxonomy}]
     with rasterio.open(image) as src:gsd=native_gsd(src)
-    save_json(ws/'workspace.json',{'image':image,'native_ground_gsd_m':round(sum(gsd)/2,4),'taxonomy':taxonomy,'seed':a.seed})
+    save_json(ws/'workspace.json',{'image':image,'native_ground_gsd_m':round(sum(gsd)/2,4),'taxonomy':taxonomy,'seed':a.seed,
+        'labellers':a.labellers,'labeller_models':LABELLER_MODELS[a.labellers],'objects':a.objects_layer=='on'})
     g=sum(gsd)/2;px=lambda m:max(8,round(m/g))
     grid,s=strata(rgb,valid,a.clusters,a.seed);pts=sample(grid,s,valid,a.n,a.seed,px(MIN_DIST_M))
     save_json(ref/'points.json',pts)

@@ -14,7 +14,7 @@ import numpy as np
 from PIL import Image,ImageDraw
 from scipy import ndimage
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from common import OVERLAY_ALPHA,ask_claude,blend,class_maps,colour,load_json,read_rgb,save_json,workspace
+from common import OVERLAY_ALPHA,ask_claude,blend,class_maps,colour,load_goal,load_json,read_rgb,save_json,workspace
 
 PROMPT='''You are reviewing two land-cover classifications, X and Y, of the same aerial image. Read these images:
 {images}
@@ -31,9 +31,25 @@ wrong class on a surface, real features left unclassified, one label swallowing 
 attention to the places where X and Y disagree. More coloured area is NOT better if the labels are wrong.
 
 Classes: {classes}
-
+{goal}
 Reply with only JSON:
 {{"x_errors":["..."],"y_errors":["..."],"verdict":"X" | "Y" | "tie","confidence":"high" | "low","reason":"one sentence"}}'''
+
+def goal_text(goal):
+    """What the classification is for, so the reviewer weighs the errors that matter for it."""
+    if not goal:return ''
+    cats={}
+    for c,v in goal.get('classes',{}).items():
+        if v.get('category') and v['category']!='depends' and v.get('role')!='ignore':cats.setdefault(v['category'],[]).append(c)
+    lines=[f"\nThis classification is used to {goal['purpose']}. Judge X and Y by the errors that matter for that purpose."]
+    costly=[f"{c['a']} vs {c['b']}" for c in sorted(goal.get('costly_confusions',[]),key=lambda c:-c['cost'])]
+    if costly:lines.append('Errors that matter most: '+'; '.join(costly)+'.')
+    same=[f"{', '.join(v)} (all {k})" for k,v in cats.items() if len(v)>1]
+    if same:lines.append('Mix-ups within these groups barely matter: '+'; '.join(same)+'.')
+    ignore=[c for c,v in goal.get('classes',{}).items() if v.get('role')=='ignore']
+    if ignore:lines.append('Errors on these classes do not matter: '+', '.join(ignore)+'.')
+    for r in goal.get('rules',[]):lines.append('Rule: '+r)
+    return '\n'.join(lines)+'\n'
 
 def overlay(rgb,names,alpha=OVERLAY_ALPHA):
     out=rgb.astype('float32')
@@ -78,7 +94,7 @@ def main():
     note=f"Only the {changed[0]} layer differs between X and Y; judge on that layer." if len(changed)==1 else 'Both layers differ between X and Y.'
     dict_classes=lambda r:[c['name'] for c in load_json(Path(r)/'run.work'/'dictionary.json')['classes']]
     classes=', '.join(dict.fromkeys(dict_classes(a.base)+dict_classes(a.cand)))
-    reply=ask_claude(PROMPT.format(images='\n'.join(str(p) for p in paths),classes=classes,changed=note),a.model)
+    reply=ask_claude(PROMPT.format(images='\n'.join(str(p) for p in paths),classes=classes,changed=note,goal=goal_text(load_goal(ws))),a.model)
     v=reply.get('verdict','tie');cand_side='X' if swap else 'Y'
     verdict={'preferred':'tie' if v not in ('X','Y') else ('candidate' if v==cand_side else 'base'),
         'confidence':reply.get('confidence'),'reason':reply.get('reason'),
