@@ -2,13 +2,14 @@
 from collections import defaultdict
 from contextlib import ExitStack
 import json
+import math
 import sqlite3
 
 import numpy as np
 import rasterio
 from rasterio.windows import Window
 from rasterio.features import shapes
-from shapely.geometry import shape
+from shapely.geometry import box,shape
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 from skimage.segmentation import slic
@@ -33,11 +34,14 @@ def export(source,out,work,cfg,types,features,project,budget):
     from .pipeline import profile
     from .raster import rendering
     classes={t['class_id']:t['class_name'] for t in types};classes[0]='unclassified'
-    rows=[];next_id=1;max_class=max(classes)
+    rows=[];next_id=1;max_class=max(classes);plots={}
     with rasterio.open(source) as src,ExitStack() as stack, \
          rasterio.open(work/'valid.tif') as vf,rasterio.open(work/'executed.tif') as ex, \
          rasterio.open(out/'objects.tif','w',**profile(src,dtype='uint32',nodata=0)) as dst:
         crs=src.crs.to_wkt();stretch=rendering(src,cfg.bands)
+        # Review plots are 25 metres in the same metric CRS used for areas.
+        # Source coordinates may be degrees or feet (e.g. EPSG:6430).
+        left,_,_,top=project(box(*src.bounds)).bounds
         feature_rasters=[stack.enter_context(rasterio.open(p)) for p in sorted((out/'features').glob('*.tif'))]
         dst.set_band_description(1,'object_id')
         dst.update_tags(object_layer='classification.gpkg:objects',algorithm='SLIC',
@@ -90,6 +94,10 @@ def export(source,out,work,cfg,types,features,project,budget):
     tree=STRtree([f['geometry'] for f in features]);links=[]
     for i,obj in enumerate(rows):
         if i%100==0:budget()
+        point=project(obj['geometry'].representative_point())
+        cell=(math.floor((top-point.y)/25),math.floor((point.x-left)/25))
+        obj['plot_id']=plots.setdefault(cell,len(plots)+1)
+        obj['class_auto']=obj['class_proposed']
         support=[]
         for index in sorted(tree.query(obj['geometry'])):
             feature=features[int(index)]
@@ -106,7 +114,8 @@ def export(source,out,work,cfg,types,features,project,budget):
             obj['top_feature_id']=strongest['feature_id']
             if len({f['class_id'] for f in support})>1 or strongest['class_name']!=obj['class_proposed']:
                 obj['needs_review']=1
-    fields={'object_id':'int64','class_proposed':object,'class_final':object,
+    fields={'object_id':'int64','plot_id':'int64','class_proposed':object,
+            'class_auto':object,'class_final':object,
             'purity':'float64','needs_review':'int32','reviewed':'int32','notes':object,
             'pixel_count':'int64','area_m2':'float64','feature_count':'int32','top_feature_id':'int64'}
     gpkg=out/'classification.gpkg'
@@ -124,8 +133,13 @@ def export(source,out,work,cfg,types,features,project,budget):
             PRIMARY KEY(object_id,feature_id))''')
         db.executemany('INSERT INTO object_features VALUES (?,?,?,?,?)',links)
         db.execute("INSERT INTO gpkg_contents(table_name,data_type,identifier,description) VALUES ('object_features','attributes','object_features','Positive-area overlaps between SLIC objects and SAM3 features')")
+        # Polygon QC already reads this table to populate its review class key.
+        db.execute('CREATE TABLE polygon_qc_keys (layer_name TEXT PRIMARY KEY, classes_json TEXT NOT NULL)')
+        key=list(dict.fromkeys(classes[cid] for cid in sorted(classes) if cid))+['unclassified']
+        db.execute('INSERT INTO polygon_qc_keys VALUES (?,?)',('objects',json.dumps(list(dict.fromkeys(key)))))
         if db.execute('PRAGMA foreign_key_check').fetchall():raise RuntimeError('Broken object-feature references')
     return rows,{'count':len(rows),'links':len(links),'flagged_for_review':sum(r['needs_review'] for r in rows),
+                 'plots':len(plots),'plot_size_m':25,
                  'unclassified':sum(r['class_proposed']=='unclassified' for r in rows),
                  'pixel_count':sum(r['pixel_count'] for r in rows),
                  'algorithm':'SLIC, non-overlapping blocks',

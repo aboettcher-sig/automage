@@ -10,6 +10,7 @@ from rasterio.features import rasterize
 from rasterio.transform import from_origin
 from shapely import from_wkb
 from shapely.ops import unary_union
+from pyproj import Transformer
 
 from automage.config import Config
 from automage.pipeline import classify
@@ -66,6 +67,9 @@ def test_feature_object_ids_geometry_links_and_unknowns(tmp_path):
         assert db.execute('PRAGMA foreign_key_check').fetchall()==[]
         assert any(o[2]=='unclassified' and o[5]==1 for o in objects)
         assert all(o[2]==o[3] and o[4]==0 for o in objects)
+        assert db.execute('SELECT COUNT(*) FROM objects WHERE class_auto != class_proposed OR typeof(plot_id) != \'integer\' OR plot_id < 1').fetchone()[0]==0
+        key=json.loads(db.execute('SELECT classes_json FROM polygon_qc_keys WHERE layer_name=?',('objects',)).fetchone()[0])
+        assert key==['grass','tree','unclassified']
     assert len(frows)==2
     fgeoms=read_layer(gpkg,'features');ogeoms=read_layer(gpkg,'objects')
     assert fgeoms[0].intersection(fgeoms[1]).area>0
@@ -113,3 +117,35 @@ def test_optional_objects_are_omitted(tmp_path):
     classify(source,out,dataclasses.replace(cfg,objects=False),model=Model())
     assert not (out/'objects.tif').exists()
     assert set(pyogrio.list_layers(out/'classification.gpkg')[:,0])=={'features'}
+
+
+@pytest.mark.parametrize('crs,transform',[
+    ('EPSG:32613',from_origin(500000,4430000,1,1)),
+    ('EPSG:6430',from_origin(3100000,1700000,4,4)),
+    ('EPSG:4326',from_origin(-105,40,.000012,.00001)),
+])
+def test_review_plots_use_metres_and_preserve_object_identity(tmp_path,crs,transform):
+    source,cfg=fixture(tmp_path);out=tmp_path/'scene'
+    with rasterio.open(source,'r+') as src:
+        src.crs=crs;src.transform=transform
+    summary=classify(source,out,cfg,model=EmptyModel())
+    with sqlite3.connect(out/'classification.gpkg') as db:
+        rows=db.execute('SELECT object_id,plot_id,class_auto,class_final,reviewed FROM objects ORDER BY object_id').fetchall()
+    points=[g.representative_point() for g in read_layer(out/'classification.gpkg','objects')]
+    tr=Transformer.from_crs(crs,summary['area_crs'],always_xy=True)
+    xy=np.array([tr.transform(p.x,p.y) for p in points])
+    plots=sorted({r[1] for r in rows})
+    assert len(plots)>1
+    assert plots==list(range(1,len(plots)+1))
+    assert summary['objects']['plots']==len(plots)
+    assert summary['objects']['plot_size_m']==25
+    assert all(auto==final=='unclassified' and reviewed==0 for _,_,auto,final,reviewed in rows)
+    widths=[]
+    for plot in plots:
+        span=np.ptp(xy[[r[1]==plot for r in rows]],axis=0)
+        assert (span<=25+1e-7).all()
+        widths.append(span.max())
+    # A feet/degrees grid or a separate plot per object must not pass as 25 m plots.
+    assert max(widths)>15
+    with rasterio.open(out/'objects.tif') as raster:
+        assert set(np.unique(raster.read(1)))-{0}=={r[0] for r in rows}

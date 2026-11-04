@@ -48,6 +48,11 @@ Omit `--objects` to generate features only. Add `--dictionary classes.json` to u
 
 Features can overlap. Superpixels divide the image into non-overlapping objects, with proposed labels and fields for review in GIS software.
 
+With `--objects`, load the `objects` layer from `classification.gpkg` into Polygon QC.
+Objects are grouped into 25 m review plots using the metric CRS recorded in the summary.
+`class_auto` preserves the original `class_proposed` label, and the GeoPackage carries
+the dictionary's class key for the plugin. Review edits use `class_final` and `reviewed`.
+
 ## Demo
 
 Try the [demo notebook](notebooks/AutoMage_Demo.ipynb) locally or in Google Colab with a GPU runtime. It includes a sample GeoTIFF.
